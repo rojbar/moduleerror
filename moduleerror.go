@@ -15,6 +15,9 @@ const (
 
 	// CodeInternalFailureError internal failure error
 	CodeInternalFailureError Code = "INTERNAL_FAILURE"
+
+	// CodeConflictError conflict error
+	CodeConflictError Code = "CONFLICT"
 )
 
 // Error defines the module error interface for all errors used
@@ -68,5 +71,14 @@ func NewInternalFailureError(err error) error {
 		ModuleCode: CodeInternalFailureError,
 		err:        err,
 		Message:    "An unexpected error occurred.",
+	}
+}
+
+// NewConflictError returns an error with CodeConflictError
+func NewConflictError(err error) error {
+	return &moduleError{
+		ModuleCode: CodeConflictError,
+		err:        err,
+		Message:    fmt.Sprintf("Conflict found: %s.", err.Error()),
 	}
 }

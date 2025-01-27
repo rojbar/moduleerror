@@ -75,3 +75,26 @@ func TestInternalFailureError(t *testing.T) {
 		t.Errorf("expected moduleError to have message value %s instead got %s", "An unexpected error occurred.", moduleError.Error())
 	}
 }
+
+func TestNewConflictError(t *testing.T) {
+	dummyError := errors.New("dummy")
+
+	err := moduleerror.NewConflictError(dummyError)
+	if !errors.Is(err, dummyError) {
+		t.Errorf("err is not dummyError %v %v", err, dummyError)
+	}
+
+	var moduleError moduleerror.Error
+
+	if !errors.As(err, &moduleError) {
+		t.Errorf("err not as moduleerror.Error %v %v", err, dummyError)
+	}
+
+	if moduleError.Code() != moduleerror.CodeConflictError {
+		t.Errorf("expected moduleError to have Code value %s instead got %s", moduleerror.CodeConflictError, moduleError.Code())
+	}
+
+	if moduleError.Error() != "Conflict found: dummy." {
+		t.Errorf("expected moduleError to have message value %s instead got %s", "Conflict found: dummy.", moduleError.Error())
+	}
+}
