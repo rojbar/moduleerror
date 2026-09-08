@@ -207,3 +207,60 @@ func TestNew_preservesTheChain(t *testing.T) {
 		})
 	}
 }
+
+// cyclicError unwraps to itself, the shape an unbounded walk would follow
+// forever.
+type cyclicError struct{ next error }
+
+func (c *cyclicError) Error() string { return "cyclic" }
+func (c *cyclicError) Unwrap() error { return c.next }
+
+func TestClientMessage_boundsTheChainWalk(t *testing.T) {
+	tests := []struct {
+		name        string
+		depth       int
+		cyclic      bool
+		wantGeneric bool
+	}{
+		{
+			name:        "chain_within_the_bound_is_fully_inspected",
+			depth:       50,
+			wantGeneric: false,
+		},
+		{
+			name:        "chain_deeper_than_the_bound_hides_the_cause",
+			depth:       200,
+			wantGeneric: true,
+		},
+		{
+			name:        "cyclic_chain_terminates_and_hides_the_cause",
+			cyclic:      true,
+			wantGeneric: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cause := error(errors.New("bottom"))
+			if tc.cyclic {
+				cycle := &cyclicError{}
+				cycle.next = cycle
+				cause = cycle
+			}
+			for i := 0; i < tc.depth; i++ {
+				cause = fmt.Errorf("layer %d: %w", i, cause)
+			}
+
+			want := cause.Error()
+			if tc.wantGeneric {
+				want = internalFailureMessage
+			}
+
+			got := asModuleError(t, moduleerror.NewNotFoundError(cause)).ClientMessage()
+
+			if got != want {
+				t.Errorf("ClientMessage() = %q, want %q", got, want)
+			}
+		})
+	}
+}

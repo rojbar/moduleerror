@@ -81,6 +81,11 @@ func (e *moduleError) Unwrap() error {
 	return e.err
 }
 
+// maxUnwrapDepth bounds how far the chain walk descends. A chain longer than
+// this is either a cycle or pathological, and neither should be able to
+// exhaust the stack.
+const maxUnwrapDepth = 100
+
 // wrapsInternalFailure reports whether any error in err's chain is a module
 // error marked as an internal failure.
 //
@@ -89,15 +94,27 @@ func (e *moduleError) Unwrap() error {
 // further down. Both shapes of Unwrap are followed, so an internal failure
 // combined through errors.Join is still found.
 func wrapsInternalFailure(err error) bool {
+	return wrapsInternalFailureWithin(err, maxUnwrapDepth)
+}
+
+// wrapsInternalFailureWithin is wrapsInternalFailure with a descent budget.
+//
+// Exhausting the budget answers true. Past that point the chain has not been
+// fully inspected, and the safe answer is the one that keeps the cause hidden:
+// a chain that deep yields the generic message rather than risking a leak.
+func wrapsInternalFailureWithin(err error, budget int) bool {
+	if budget == 0 {
+		return true
+	}
 	if me, ok := err.(Error); ok && me.Code() == CodeInternalFailureError {
 		return true
 	}
 	switch unwrapper := err.(type) {
 	case interface{ Unwrap() error }:
-		return wrapsInternalFailure(unwrapper.Unwrap())
+		return wrapsInternalFailureWithin(unwrapper.Unwrap(), budget-1)
 	case interface{ Unwrap() []error }:
 		for _, wrapped := range unwrapper.Unwrap() {
-			if wrapsInternalFailure(wrapped) {
+			if wrapsInternalFailureWithin(wrapped, budget-1) {
 				return true
 			}
 		}

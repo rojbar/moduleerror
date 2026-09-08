@@ -42,6 +42,11 @@ sees the generic message. An error that wraps an internal failure anywhere in
 its chain counts as one, so a cause another service marked internal cannot
 resurface through a caller that classified the failure differently.
 
+The chain walk descends at most 100 levels. A chain longer than that, or one
+that cycles, also yields the generic message: past the bound the chain has not
+been fully inspected, and the safe answer is the one that keeps the cause
+hidden.
+
 ## Writing the cause
 
 For every code except `INTERNAL_FAILURE`, the cause's message reaches the
