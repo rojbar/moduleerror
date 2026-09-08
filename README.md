@@ -1,4 +1,4 @@
-# moduleerror [![Go Reference](https://pkg.go.dev/badge/github.com/rojbar/moduleerror/v2.svg)](https://pkg.go.dev/github.com/rojbar/moduleerror/v2) ![build](https://github.com/rojbar/moduleerror/actions/workflows/build.yml/badge.svg) [![codecov](https://codecov.io/github/rojbar/moduleerror/graph/badge.svg?token=41C18OIZ1Q)](https://codecov.io/github/rojbar/moduleerror)
+# moduleerror [![Go Reference](https://pkg.go.dev/badge/github.com/templaterojbar/moduleerror/v2.svg)](https://pkg.go.dev/github.com/templaterojbar/moduleerror/v2) ![build](https://github.com/templaterojbar/moduleerror/actions/workflows/build.yml/badge.svg) [![codecov](https://codecov.io/github/templaterojbar/moduleerror/graph/badge.svg?token=41C18OIZ1Q)](https://codecov.io/github/templaterojbar/moduleerror)
 
 moduleerror implements common module error logic.
 
@@ -7,7 +7,7 @@ transport, so the same value can become an HTTP status, an MCP tool failure or
 a gRPC code at whichever boundary handles it.
 
 ```sh
-go get github.com/rojbar/moduleerror/v2
+go get github.com/templaterojbar/moduleerror/v2
 ```
 
 ## Two texts, two audiences
