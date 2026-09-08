@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/rojbar/moduleerror/v2"
+	"github.com/templaterojbar/moduleerror/v2"
 )
 
 // internalFailureMessage is written out rather than referenced from the
