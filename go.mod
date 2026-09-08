@@ -1,3 +1,3 @@
-module github.com/rojbar/moduleerror
+module github.com/rojbar/moduleerror/v2
 
 go 1.23.2

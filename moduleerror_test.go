@@ -2,99 +2,208 @@ package moduleerror_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
-	"github.com/rojbar/moduleerror"
+	"github.com/rojbar/moduleerror/v2"
 )
 
-func TestNewInvalidInputError(t *testing.T) {
-	dummyError := errors.New("dummy")
+// internalFailureMessage is written out rather than referenced from the
+// package, so these tests pin the text an internal failure actually exposes.
+const internalFailureMessage = "an unexpected error occurred"
 
-	err := moduleerror.NewInvalidInputError(dummyError)
-	if !errors.Is(err, dummyError) {
-		t.Errorf("err is not dummyError %v %v", err, dummyError)
+// newByCode builds the error a case describes. It keeps the table rows as
+// data, instead of every row carrying a reference to its constructor.
+func newByCode(t *testing.T, code moduleerror.Code, cause error) error {
+	t.Helper()
+	switch code {
+	case moduleerror.CodeInvalidInputError:
+		return moduleerror.NewInvalidInputError(cause)
+	case moduleerror.CodeNotFoundError:
+		return moduleerror.NewNotFoundError(cause)
+	case moduleerror.CodeInternalFailureError:
+		return moduleerror.NewInternalFailureError(cause)
+	case moduleerror.CodeConflictError:
+		return moduleerror.NewConflictError(cause)
+	}
+	t.Fatalf("newByCode: unknown code %q", code)
+	return nil
+}
+
+func asModuleError(t *testing.T, err error) moduleerror.Error {
+	t.Helper()
+	var me moduleerror.Error
+	if !errors.As(err, &me) {
+		t.Fatalf("errors.As() found no moduleerror.Error in %v", err)
+	}
+	return me
+}
+
+func TestNew_textsPerCode(t *testing.T) {
+	tests := []struct {
+		name              string
+		code              moduleerror.Code
+		cause             string
+		wantError         string
+		wantClientMessage string
+	}{
+		{
+			name:              "invalid_input_exposes_the_cause",
+			code:              moduleerror.CodeInvalidInputError,
+			cause:             "title must not be empty",
+			wantError:         "INVALID_INPUT: title must not be empty",
+			wantClientMessage: "title must not be empty",
+		},
+		{
+			name:              "not_found_exposes_the_cause",
+			code:              moduleerror.CodeNotFoundError,
+			cause:             "epic not found",
+			wantError:         "NOT_FOUND: epic not found",
+			wantClientMessage: "epic not found",
+		},
+		{
+			name:              "conflict_exposes_the_cause",
+			code:              moduleerror.CodeConflictError,
+			cause:             "goal already exists",
+			wantError:         "CONFLICT: goal already exists",
+			wantClientMessage: "goal already exists",
+		},
+		{
+			name:              "internal_failure_hides_the_cause",
+			code:              moduleerror.CodeInternalFailureError,
+			cause:             "sqlite: database is locked",
+			wantError:         "INTERNAL_FAILURE: sqlite: database is locked",
+			wantClientMessage: internalFailureMessage,
+		},
 	}
 
-	var moduleError moduleerror.Error
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := newByCode(t, tc.code, errors.New(tc.cause))
 
-	if !errors.As(err, &moduleError) {
-		t.Errorf("err not as moduleerror.Error %v %v", err, dummyError)
-	}
+			me := asModuleError(t, err)
 
-	if moduleError.Code() != moduleerror.CodeInvalidInputError {
-		t.Errorf("expected moduleError to have Code value %s instead got %s", moduleerror.CodeInvalidInputError, moduleError.Code())
-
-	}
-	if moduleError.Error() != "Invalid input provided: dummy." {
-		t.Errorf("expected moduleError to have message value %s instead got %s", "Invalid input provided: dummy.", moduleError.Error())
+			if me.Code() != tc.code {
+				t.Errorf("Code() = %q, want %q", me.Code(), tc.code)
+			}
+			if me.Error() != tc.wantError {
+				t.Errorf("Error() = %q, want %q", me.Error(), tc.wantError)
+			}
+			if me.ClientMessage() != tc.wantClientMessage {
+				t.Errorf("ClientMessage() = %q, want %q", me.ClientMessage(), tc.wantClientMessage)
+			}
+		})
 	}
 }
 
-func TestNewNotFoundError(t *testing.T) {
-	dummyError := errors.New("dummy")
+// nilUnwrapper is an error that advertises Unwrap but has nothing beneath it,
+// the shape a third-party error can take.
+type nilUnwrapper struct{}
 
-	err := moduleerror.NewNotFoundError(dummyError)
-	if !errors.Is(err, dummyError) {
-		t.Errorf("err is not dummyError %v %v", err, dummyError)
+func (nilUnwrapper) Error() string { return "wrapper with no cause" }
+func (nilUnwrapper) Unwrap() error { return nil }
+
+func TestClientMessage_internalFailureIsContagious(t *testing.T) {
+	tests := []struct {
+		name              string
+		outerCode         moduleerror.Code
+		innerCode         moduleerror.Code // empty wraps the cause directly
+		join              bool
+		innerUnwrapsToNil bool
+		wantClientMessage string
+	}{
+		{
+			name:              "plain_cause_is_exposed",
+			outerCode:         moduleerror.CodeNotFoundError,
+			wantClientMessage: "sqlite: database is locked",
+		},
+		{
+			name:              "wrapping_a_non_internal_failure_exposes_it",
+			outerCode:         moduleerror.CodeNotFoundError,
+			innerCode:         moduleerror.CodeConflictError,
+			wantClientMessage: "CONFLICT: sqlite: database is locked",
+		},
+		{
+			name:              "wrapping_an_internal_failure_returns_the_generic_message",
+			outerCode:         moduleerror.CodeNotFoundError,
+			innerCode:         moduleerror.CodeInternalFailureError,
+			wantClientMessage: internalFailureMessage,
+		},
+		{
+			name:              "internal_failure_reached_through_errors_join_returns_the_generic_message",
+			outerCode:         moduleerror.CodeNotFoundError,
+			innerCode:         moduleerror.CodeInternalFailureError,
+			join:              true,
+			wantClientMessage: internalFailureMessage,
+		},
+		{
+			name:              "errors_join_without_an_internal_failure_stays_exposed",
+			outerCode:         moduleerror.CodeNotFoundError,
+			innerCode:         moduleerror.CodeConflictError,
+			join:              true,
+			wantClientMessage: "unrelated failure\nCONFLICT: sqlite: database is locked",
+		},
+		{
+			name:              "cause_that_unwraps_to_nothing_is_exposed",
+			outerCode:         moduleerror.CodeNotFoundError,
+			innerUnwrapsToNil: true,
+			wantClientMessage: "wrapper with no cause",
+		},
 	}
 
-	var moduleError moduleerror.Error
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			inner := error(errors.New("sqlite: database is locked"))
+			if tc.innerUnwrapsToNil {
+				inner = nilUnwrapper{}
+			}
+			if tc.innerCode != "" {
+				inner = newByCode(t, tc.innerCode, inner)
+			}
+			if tc.join {
+				inner = errors.Join(errors.New("unrelated failure"), inner)
+			}
 
-	if !errors.As(err, &moduleError) {
-		t.Errorf("err not as moduleerror.Error %v %v", err, dummyError)
-	}
+			got := asModuleError(t, newByCode(t, tc.outerCode, inner)).ClientMessage()
 
-	if moduleError.Code() != moduleerror.CodeNotFoundError {
-		t.Errorf("expected moduleError to have Code value %s instead got %s", moduleerror.CodeNotFoundError, moduleError.Code())
-	}
-
-	if moduleError.Error() != "Resource not found: dummy." {
-		t.Errorf("expected moduleError to have message value %s instead got %s", "Resource not found: dummy.", moduleError.Error())
+			if got != tc.wantClientMessage {
+				t.Errorf("ClientMessage() = %q, want %q", got, tc.wantClientMessage)
+			}
+		})
 	}
 }
 
-func TestInternalFailureError(t *testing.T) {
-	dummyError := errors.New("dummy")
-
-	err := moduleerror.NewInternalFailureError(dummyError)
-	if !errors.Is(err, dummyError) {
-		t.Errorf("err is not dummyError %v %v", err, dummyError)
+func TestNew_preservesTheChain(t *testing.T) {
+	tests := []struct {
+		name      string
+		code      moduleerror.Code
+		extraWrap bool
+	}{
+		{
+			name: "errors_is_reaches_the_cause",
+			code: moduleerror.CodeInternalFailureError,
+		},
+		{
+			name:      "errors_as_finds_the_module_error_under_fmt_wrapping",
+			code:      moduleerror.CodeNotFoundError,
+			extraWrap: true,
+		},
 	}
 
-	var moduleError moduleerror.Error
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cause := errors.New("sqlite: database is locked")
+			err := newByCode(t, tc.code, cause)
+			if tc.extraWrap {
+				err = fmt.Errorf("creating goal: %w", err)
+			}
 
-	if !errors.As(err, &moduleError) {
-		t.Errorf("err not as moduleerror.Error %v %v", err, dummyError)
-	}
-
-	if moduleError.Code() != moduleerror.CodeInternalFailureError {
-		t.Errorf("expected moduleError to have Code value %s instead got %s", moduleerror.CodeInternalFailureError, moduleError.Code())
-	}
-
-	if moduleError.Error() != "An unexpected error occurred." {
-		t.Errorf("expected moduleError to have message value %s instead got %s", "An unexpected error occurred.", moduleError.Error())
-	}
-}
-
-func TestNewConflictError(t *testing.T) {
-	dummyError := errors.New("dummy")
-
-	err := moduleerror.NewConflictError(dummyError)
-	if !errors.Is(err, dummyError) {
-		t.Errorf("err is not dummyError %v %v", err, dummyError)
-	}
-
-	var moduleError moduleerror.Error
-
-	if !errors.As(err, &moduleError) {
-		t.Errorf("err not as moduleerror.Error %v %v", err, dummyError)
-	}
-
-	if moduleError.Code() != moduleerror.CodeConflictError {
-		t.Errorf("expected moduleError to have Code value %s instead got %s", moduleerror.CodeConflictError, moduleError.Code())
-	}
-
-	if moduleError.Error() != "Conflict found: dummy." {
-		t.Errorf("expected moduleError to have message value %s instead got %s", "Conflict found: dummy.", moduleError.Error())
+			if !errors.Is(err, cause) {
+				t.Errorf("errors.Is() did not reach the cause through %v", err)
+			}
+			if got := asModuleError(t, err).Code(); got != tc.code {
+				t.Errorf("Code() = %q, want %q", got, tc.code)
+			}
+		})
 	}
 }
